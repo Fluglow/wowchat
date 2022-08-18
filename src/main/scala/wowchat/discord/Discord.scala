@@ -111,7 +111,8 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       var formattedMessage =
         messageResolver.stripColorCoding(
         escapeFormatting(
-        messageResolver.resolveLinks(message)))
+        messageResolver.resolveLinks(
+        escapeLinks(message))))
 
       //Message without raid icons, used when searching for role tagging patterns.
       val cleanMessage = removeRaidIcons(formattedMessage).toLowerCase
@@ -159,6 +160,10 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       .replace("*", "\\*")
       .replace("`", "\\`")
       .replace("||", "\\|")
+  }
+
+  def escapeLinks(msg: String) : String = {
+    msg.replace("http:", "http\\:").replace("https:", "https\\:")
   }
 
   def thunderfury(guild: Guild, message: String) : String = {
