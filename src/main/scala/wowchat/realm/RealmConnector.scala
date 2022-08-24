@@ -14,27 +14,28 @@ import io.netty.util.concurrent.Future
 
 import scala.util.Try
 
-class RealmConnector(realmConnectionCallback: RealmConnectionCallback) extends StrictLogging {
+class RealmConnector(realmConnectionCallback: RealmConnectionCallback, configIndex: Int) extends StrictLogging {
 
   private var channel: Option[Channel] = None
 
   def connect: Unit = {
-    logger.info(s"Connecting to realm server ${Global.config.wow.realmlist.host}:${Global.config.wow.realmlist.port}")
+    val wowConfig = Global.config.wow(configIndex)
+    logger.info(s"Connecting to realm server ${wowConfig.realmlist.host}:${wowConfig.realmlist.port}")
 
     val bootstrap = new Bootstrap
     bootstrap.group(Global.group)
       .channel(classOf[NioSocketChannel])
       .option[java.lang.Integer](ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000)
       .option[java.lang.Boolean](ChannelOption.SO_KEEPALIVE, true)
-      .remoteAddress(new InetSocketAddress(Global.config.wow.realmlist.host, Global.config.wow.realmlist.port))
+      .remoteAddress(new InetSocketAddress(wowConfig.realmlist.host, wowConfig.realmlist.port))
       .handler(new ChannelInitializer[SocketChannel]() {
 
         @throws[Exception]
         override protected def initChannel(socketChannel: SocketChannel): Unit = {
           val handler = if (WowChatConfig.getExpansion == WowExpansion.Vanilla) {
-            new RealmPacketHandler(realmConnectionCallback)
+            new RealmPacketHandler(realmConnectionCallback, configIndex)
           } else {
-            new RealmPacketHandlerTBC(realmConnectionCallback)
+            new RealmPacketHandlerTBC(realmConnectionCallback, configIndex)
           }
 
           socketChannel.pipeline.addLast(

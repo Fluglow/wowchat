@@ -2,7 +2,7 @@ package wowchat
 
 import java.util.concurrent.{Executors, TimeUnit}
 
-import wowchat.common.{CommonConnectionCallback, Global, ReconnectDelay, WowChatConfig}
+import wowchat.common.{CommonConnectionCallback, Global, ReconnectDelay, Wow, WowChatConfig}
 import wowchat.discord.Discord
 import wowchat.game.GameConnector
 import wowchat.realm.{RealmConnectionCallback, RealmConnector}
@@ -25,9 +25,28 @@ object WoWChat extends StrictLogging {
     }
     Global.config = WowChatConfig(confFile)
 
-    checkForNewVersion
+    checkForNewVersion()
 
-    val gameConnectionController: CommonConnectionCallback = new CommonConnectionCallback {
+    val controllers = Global.config.wow.indices.map(i => {
+      initGameController(i)
+    }).toList
+
+    logger.info("Connecting to Discord...")
+    Global.discord = new Discord(new CommonConnectionCallback {
+      override def connected: Unit = connectGameControllers(controllers)
+
+      override def error: Unit = sys.exit(1)
+    })
+  }
+
+  private def connectGameControllers(controllers: List[CommonConnectionCallback]): Unit = {
+    controllers.foreach(controller => {
+      controller.connect
+    })
+  }
+
+  private def initGameController(configIndex: Int): CommonConnectionCallback = {
+    new CommonConnectionCallback {
 
       private val reconnectExecutor = Executors.newSingleThreadScheduledExecutor
       private val reconnectDelay = new ReconnectDelay
@@ -40,23 +59,23 @@ object WoWChat extends StrictLogging {
             gameConnect(host, port, realmName, realmId, sessionKey)
           }
 
-          override def disconnected: Unit = doReconnect
+          override def disconnected: Unit = doReconnect()
 
           override def error: Unit = sys.exit(1)
-        })
+        }, configIndex)
 
         realmConnector.connect
       }
 
       private def gameConnect(host: String, port: Int, realmName: String, realmId: Int, sessionKey: Array[Byte]): Unit = {
-        new GameConnector(host, port, realmName, realmId, sessionKey, this).connect
+        new GameConnector(host, port, realmName, realmId, sessionKey, this, configIndex).connect
       }
 
       override def connected: Unit = reconnectDelay.reset
 
-      override def disconnected: Unit = doReconnect
+      override def disconnected: Unit = doReconnect()
 
-      def doReconnect: Unit = {
+      def doReconnect(): Unit = {
         Global.group.shutdownGracefully()
         Global.discord.changeRealmStatus("Connecting...")
         val delay = reconnectDelay.getNext
@@ -67,16 +86,9 @@ object WoWChat extends StrictLogging {
         }, delay, TimeUnit.SECONDS)
       }
     }
-
-    logger.info("Connecting to Discord...")
-    Global.discord = new Discord(new CommonConnectionCallback {
-      override def connected: Unit = gameConnectionController.connect
-
-      override def error: Unit = sys.exit(1)
-    })
   }
 
-  private def checkForNewVersion = {
+  private def checkForNewVersion(): Unit = {
     // This is JSON, but I really just didn't want to import a full blown JSON library for one string.
     val data = Source.fromURL("https://api.github.com/repos/fjaros/wowchat/releases/latest").mkString
     val regex = "\"tag_name\":\"(.+?)\",".r

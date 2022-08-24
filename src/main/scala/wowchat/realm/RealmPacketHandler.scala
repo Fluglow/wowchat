@@ -9,7 +9,7 @@ import io.netty.channel.{ChannelHandlerContext, ChannelInboundHandlerAdapter}
 
 private[realm] case class RealmList(name: String, address: String, realmId: Byte)
 
-class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
+class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback, configIndex: Int)
   extends ChannelInboundHandlerAdapter with StrictLogging {
 
   private val srpClient = new SRPClient
@@ -66,12 +66,12 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
     logger.info(s"Connected! Sending account login information...")
     this.ctx = Some(ctx)
     val version = WowChatConfig.getVersion.split("\\.").map(_.toByte)
-    val accountConfig = Global.config.wow.account
-    val platformString = Global.config.wow.platform match {
+    val accountConfig = Global.config.wow(configIndex).account
+    val platformString = Global.config.wow(configIndex).platform match {
       case Platform.Windows => "Win"
       case Platform.Mac => "OSX"
     }
-    val localeString = Global.config.wow.locale
+    val localeString = Global.config.wow(configIndex).locale
 
     val byteBuf = PooledByteBufAllocator.DEFAULT.buffer(50, 100)
 
@@ -148,8 +148,8 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
     }
 
     srpClient.step1(
-      Global.config.wow.account,
-      Global.config.wow.password,
+      Global.config.wow(configIndex).account,
+      Global.config.wow(configIndex).password,
       BigNumber(B),
       BigNumber(g),
       BigNumber(n),
@@ -164,7 +164,7 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
     ret.writeBytes(srpClient.M.asByteArray(20, false))
     val md = MessageDigest.getInstance("SHA1")
     md.update(aArray)
-    md.update(buildCrcHashes.getOrElse((WowChatConfig.getBuild, Global.config.wow.platform), new Array[Byte](20)))
+    md.update(buildCrcHashes.getOrElse((WowChatConfig.getBuild, Global.config.wow(configIndex).platform), new Array[Byte](20)))
     ret.writeBytes(md.digest)
     ret.writeByte(0)
     ret.writeByte(0)
@@ -201,14 +201,14 @@ class RealmPacketHandler(realmConnectionCallback: RealmConnectionCallback)
     val accountFlag = msg.byteBuf.readIntLE
 
     // ask for realm list
-    logger.info(s"Successfully logged into realm server. Looking for realm ${Global.config.wow.realmlist.name}")
+    logger.info(s"Successfully logged into realm server. Looking for realm ${Global.config.wow(configIndex).realmlist.name}")
     val ret = PooledByteBufAllocator.DEFAULT.buffer(4, 4)
     ret.writeIntLE(0)
     ctx.get.writeAndFlush(Packet(RealmPackets.CMD_REALM_LIST, ret))
   }
 
   private def handle_CMD_REALM_LIST(msg: Packet): Unit = {
-    val configRealm = Global.config.wow.realmlist.name
+    val configRealm = Global.config.wow(configIndex).realmlist.name
 
     val parsedRealmList = parseRealmList(msg)
     val realms = parsedRealmList

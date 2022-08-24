@@ -19,7 +19,8 @@ class GameConnector(host: String,
                     realmName: String,
                     realmId: Int,
                     sessionKey: Array[Byte],
-                    gameEventCallback: CommonConnectionCallback)
+                    gameEventCallback: CommonConnectionCallback,
+                    configIndex: Int)
   extends GamePackets with StrictLogging {
 
   sys.addShutdownHook({
@@ -64,19 +65,19 @@ class GameConnector(host: String,
             WowChatConfig.getExpansion match {
               case WowExpansion.Vanilla =>
                 socketChannel.attr(CRYPT).set(new GameHeaderCrypt)
-                new GamePacketHandler(realmId, realmName, sessionKey, gameEventCallback)
+                new GamePacketHandler(realmId, realmName, sessionKey, gameEventCallback, configIndex)
               case WowExpansion.TBC =>
                 socketChannel.attr(CRYPT).set(new GameHeaderCryptTBC)
-                new GamePacketHandlerTBC(realmId, realmName, sessionKey, gameEventCallback)
+                new GamePacketHandlerTBC(realmId, realmName, sessionKey, gameEventCallback, configIndex)
               case WowExpansion.WotLK =>
                 socketChannel.attr(CRYPT).set(new GameHeaderCryptWotLK)
-                new GamePacketHandlerWotLK(realmId, realmName, sessionKey, gameEventCallback)
+                new GamePacketHandlerWotLK(realmId, realmName, sessionKey, gameEventCallback, configIndex)
               case WowExpansion.Cataclysm =>
                 socketChannel.attr(CRYPT).set(new GameHeaderCryptWotLK)
-                new GamePacketHandlerCataclysm15595(realmId, realmName, sessionKey, gameEventCallback)
+                new GamePacketHandlerCataclysm15595(realmId, realmName, sessionKey, gameEventCallback, configIndex)
               case WowExpansion.MoP =>
                 socketChannel.attr(CRYPT).set(new GameHeaderCryptMoP)
-                new GamePacketHandlerMoP18414(realmId, realmName, sessionKey, gameEventCallback)
+                new GamePacketHandlerMoP18414(realmId, realmName, sessionKey, gameEventCallback, configIndex)
             }
           )
 

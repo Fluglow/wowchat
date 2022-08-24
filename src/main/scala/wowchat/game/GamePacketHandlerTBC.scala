@@ -6,8 +6,8 @@ import java.util.concurrent.TimeUnit
 import io.netty.buffer.{ByteBuf, PooledByteBufAllocator}
 import wowchat.common.{CommonConnectionCallback, Global, Packet}
 
-class GamePacketHandlerTBC(realmId: Int, realmName: String, sessionKey: Array[Byte], gameEventCallback: CommonConnectionCallback)
-  extends GamePacketHandler(realmId, realmName, sessionKey, gameEventCallback) with GamePacketsTBC {
+class GamePacketHandlerTBC(realmId: Int, realmName: String, sessionKey: Array[Byte], gameEventCallback: CommonConnectionCallback, configIndex: Int)
+  extends GamePacketHandler(realmId, realmName, sessionKey, gameEventCallback, configIndex: Int) with GamePacketsTBC {
 
   override protected val addonInfo: Array[Byte] = Array(
     0xD0, 0x01, 0x00, 0x00, 0x78, 0x9C, 0x75, 0xCF, 0x3B, 0x0E, 0xC2, 0x30, 0x0C, 0x80, 0xE1, 0x72,
@@ -40,7 +40,7 @@ class GamePacketHandlerTBC(realmId: Int, realmName: String, sessionKey: Array[By
   }
 
   override protected def parseCharEnum(msg: Packet): Option[CharEnumMessage] = {
-    val characterBytes = Global.config.wow.character.toLowerCase.getBytes("UTF-8")
+    val characterBytes = Global.config.wow(configIndex).character.toLowerCase.getBytes("UTF-8")
     val charactersNum = msg.byteBuf.readByte
 
     // only care about guid and name here
@@ -114,7 +114,7 @@ class GamePacketHandlerTBC(realmId: Int, realmName: String, sessionKey: Array[By
   }
 
   private def handle_SMSG_MOTD(msg: Packet): Unit = {
-    if (Global.config.wow.enableServerMotd) {
+    if (Global.config.wow(configIndex).enableServerMotd) {
       parseServerMotd(msg).foreach(sendChatMessage)
     }
   }

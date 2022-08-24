@@ -106,7 +106,9 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     changeStatus(ActivityType.DEFAULT, message)
   }
 
-  def sendMessageFromWow(from: Option[String], message: String, wowType: Byte, wowChannel: Option[String]): Unit = {
+  def sendMessageFromWow(from: Option[String], message: String, wowType: Byte, wowChannel: Option[String], sourceCharIndex: Int): Unit = {
+    val targetChannel = Global.config.wow(sourceCharIndex).restrictedChannel
+
     Global.wowToDiscord.get((wowType, wowChannel.map(_.toLowerCase))).foreach(discordChannels => {
       var formattedMessage =
         messageResolver.stripColorCoding(
@@ -117,37 +119,41 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       //Message without raid icons, used when searching for role tagging patterns.
       val cleanMessage = removeRaidIcons(formattedMessage).toLowerCase
 
-      discordChannels.foreach {
-        case (channel, channelConfig) =>
-          val mentions = getRoleMentions(cleanMessage, from, channel.getGuild)
+      val (channel, channelConfig) = discordChannels.collectFirst {
+        case (h, t) if h.getName == targetChannel => (h, t)
+      }.get
 
-          formattedMessage = raidIconsToEmotes(channel.getGuild, formattedMessage) //Convert raid icons ({skull}, {star} etc)
-          formattedMessage = thunderfury(channel.getGuild, formattedMessage) //Did someone say [Thunderfury, Blessed Blade of the Windseeker]?
-          formattedMessage += "\n" + mentions
 
-          var errors = mutable.ArrayBuffer.empty[String]
-          val parsedResolvedTags = from.map(_ => {
-            messageResolver.resolveTags(channel, formattedMessage, errors += _)
-          }).getOrElse(formattedMessage)
+      val mentions = getRoleMentions(cleanMessage, from, channel.getGuild)
 
-          val formatted = channelConfig
-            .format
-            .replace("%time", Global.getTime)
-            .replace("%user", from.getOrElse(""))
-            .replace("%message", parsedResolvedTags)
-            .replace("%target", wowChannel.getOrElse(""))
+      formattedMessage = raidIconsToEmotes(channel.getGuild, formattedMessage) //Convert raid icons ({skull}, {star} etc)
+      formattedMessage = thunderfury(channel.getGuild, formattedMessage) //Did someone say [Thunderfury, Blessed Blade of the Windseeker]?
+      if(mentions.nonEmpty) {
+        formattedMessage += "\n" + mentions
+      }
 
-          val filter = shouldFilter(channelConfig.filters, formatted)
-          logger.info(s"${if (filter) "FILTERED " else ""}WoW->Discord(${channel.getName}) $formatted")
-          if (!filter) {
-            channel.sendMessage(formatted).queue()
-          }
-          if (Global.config.discord.enableTagFailedNotifications) {
-            errors.foreach(error => {
-              Global.game.foreach(_.sendMessageToWow(ChatEvents.CHAT_MSG_WHISPER, error, from))
-              channel.sendMessage(error).queue()
-            })
-          }
+      var errors = mutable.ArrayBuffer.empty[String]
+      val parsedResolvedTags = from.map(_ => {
+        messageResolver.resolveTags(channel, formattedMessage, errors += _)
+      }).getOrElse(formattedMessage)
+
+      val formatted = channelConfig
+        .format
+        .replace("%time", Global.getTime)
+        .replace("%user", from.getOrElse(""))
+        .replace("%message", parsedResolvedTags)
+        .replace("%target", wowChannel.getOrElse(""))
+
+      val filter = shouldFilter(channelConfig.filters, formatted)
+      logger.info(s"${if (filter) "FILTERED " else ""}WoW->Discord(${channel.getName}) $formatted")
+      if (!filter) {
+        channel.sendMessage(formatted).queue()
+      }
+      if (Global.config.discord.enableTagFailedNotifications) {
+        errors.foreach(error => {
+          Global.game.foreach(_.sendMessageToWow(ChatEvents.CHAT_MSG_WHISPER, error, from))
+          channel.sendMessage(error).queue()
+        })
       }
     })
   }
@@ -169,7 +175,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
   def thunderfury(guild: Guild, message: String) : String = {
     if(!message.contains("[Thunderfury, Blessed Blade of the Windseeker]")) return message
     val mention = getEmoteMention(guild, "thunderfury")
-    return message
+    message
         .replace("[Thunderfury, Blessed Blade of the Windseeker]", mention+mention+mention)
         .replace("(http://wotlk-twinhead.twinstar.cz?item=19019)", "")
   }
@@ -200,7 +206,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     var targetRaid = ""  // Restrict mentions to one raid/message.
     roles.foreach(role =>
     {
-      if(!targetRaid.isEmpty && role.raidName != targetRaid) return rolesBuilder.toString()
+      if(targetRaid.nonEmpty && role.raidName != targetRaid) return rolesBuilder.toString()
 
       val roleRegex = role.regex.replace("_", " ").toLowerCase
 
@@ -243,10 +249,10 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
           }
         }
     })
-    return rolesBuilder.toString()
+    rolesBuilder.toString()
   }
 
-  val icons = Map( //Wow raid icon -> discord emote
+  val icons: Map[String, String] = Map( //Wow raid icon -> discord emote
     "{star}"     -> "rt1",
     "{circle}"   -> "rt2",
     "{coin}"     -> "rt2",
@@ -282,7 +288,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     {
       finalMessage = finalMessage.replaceAll("(?i)" + Pattern.quote(icon), getEmoteMention(guild, icons.apply(icon)))
     })
-    return finalMessage
+    finalMessage
   }
 
   def getEmoteMention(guild: Guild, emote: String) : String = {
@@ -291,7 +297,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     {
       return emotes.get(0).getAsMention
     }
-    return ""
+    ""
   }
 
   def hasTagTimeout(sender: String, role: String) : Boolean = { //Returns true if the user is allowed to tag the role
@@ -306,7 +312,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     }
 
     addUserTagTimeout(sender, role) //User doesn't have timeout for this role yet, set it
-    return true
+    true
   }
 
   def addUserTagTimeout(user: String, role: String) : Unit = {
@@ -331,7 +337,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
       val split = timeout.split(":::")
       if(split(0) == role) return split(1).toInt
     })
-    return -1
+    -1
   }
 
   def cleanTimeouts() : Unit = {
@@ -367,7 +373,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     {
       return Some(emotes.get(0))
     }
-    return None
+    None
   }
 
   def sendGuildNotification(eventKey: String, message: String): Unit = {
@@ -408,6 +414,8 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
         // this is a race condition if already connected to wow, reconnect to discord, and bot tries to send
         // wow->discord message. alternatively it was throwing already garbage collected exceptions if trying
         // to use the previous connection's channel references. I guess need to refill these maps on discord reconnection
+
+        // TODO This might cause issues with multiple accounts and one disconnecting
         Global.discordToWow.clear
         Global.wowToDiscord.clear
         Global.guildEventsToDiscord.clear
@@ -613,7 +621,7 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
         return true
       }
     })
-    return false
+    false
   }
 
   def shouldSendDirectly(message: String): Boolean = {

@@ -23,7 +23,7 @@ case class AuthChallengeMessage(sessionKey: Array[Byte], byteBuf: ByteBuf)
 case class CharEnumMessage(name: String, guid: Long, race: Byte, guildGuid: Long)
 case class GuildInfo(name: String, ranks: Map[Int, String])
 
-class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte], gameEventCallback: CommonConnectionCallback)
+class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte], gameEventCallback: CommonConnectionCallback, configIndex: Int)
   extends ChannelInboundHandlerAdapter with GameCommandHandler with GamePackets with StrictLogging {
 
   protected val addonInfo: Array[Byte] = Array(
@@ -62,7 +62,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     gameEventCallback.disconnected
     Global.game = None
     if (inWorld) {
-      Global.discord.sendMessageFromWow(None, "Disconnected from server!", ChatEvents.CHAT_MSG_SYSTEM, None)
+      Global.discord.sendMessageFromWow(None, "Disconnected from server!", ChatEvents.CHAT_MSG_SYSTEM, None, configIndex)
     }
     super.channelInactive(ctx)
   }
@@ -97,7 +97,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
   }
 
   def buildGuildiesOnline: String = {
-    val characterName = Global.config.wow.character
+    val characterName = Global.config.wow(configIndex).character
 
     guildRoster
       .valuesIterator
@@ -266,7 +266,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
   }
 
   protected def parseAuthChallenge(msg: Packet): AuthChallengeMessage = {
-    val account = Global.config.wow.account
+    val account = Global.config.wow(configIndex).account
 
     val serverSeed = msg.byteBuf.readInt
     val clientSeed = Random.nextInt
@@ -327,7 +327,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
       .remove(nameQueryMessage.guid)
       .foreach(messages => {
         messages.foreach(message => {
-          Global.discord.sendMessageFromWow(Some(nameQueryMessage.name), message.message, message.tp, message.channel)
+          Global.discord.sendMessageFromWow(Some(nameQueryMessage.name), message.message, message.tp, message.channel, configIndex)
         })
         playerRoster += nameQueryMessage.guid -> Player(nameQueryMessage.name, nameQueryMessage.charClass)
     })
@@ -351,7 +351,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     }
     receivedCharEnum = true
     parseCharEnum(msg).fold({
-      logger.error(s"Character ${Global.config.wow.character} not found!")
+      logger.error(s"Character ${Global.config.wow(configIndex).character} not found!")
     })(character => {
       logger.info(s"Logging in with character ${character.name}")
       selfCharacterId = Some(character.guid)
@@ -365,7 +365,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
   }
 
   protected def parseCharEnum(msg: Packet): Option[CharEnumMessage] = {
-    val characterBytes = Global.config.wow.character.toLowerCase.getBytes("UTF-8")
+    val characterBytes = Global.config.wow(configIndex).character.toLowerCase.getBytes("UTF-8")
     val charactersNum = msg.byteBuf.readByte
 
     // only care about guid and name here
@@ -422,8 +422,13 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
       updateGuildRoster
     }
 
+    val targetChannel = Global.config.wow(configIndex).restrictedChannel
+
     // join channels
     Global.config.channels
+      .filter(channelConfig => {
+        channelConfig.discord.channel == targetChannel
+      })
       .flatMap(channelConfig => {
         channelConfig.wow.channel.fold[Option[(Int, String)]](None)(channelName => {
           Some(channelConfig.wow.id.getOrElse(ChatChannelIds.getId(channelName)) -> channelName)
@@ -477,7 +482,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
     }
 
     // ignore events from self
-    if (event != GuildEvents.GE_MOTD && Global.config.wow.character.equalsIgnoreCase(messages.head)) {
+    if (event != GuildEvents.GE_MOTD && Global.config.wow(configIndex).character.equalsIgnoreCase(messages.head)) {
       return
     }
 
@@ -562,7 +567,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
 
   protected def sendChatMessage(chatMessage: ChatMessage): Unit = {
     if (chatMessage.guid == 0) {
-      Global.discord.sendMessageFromWow(None, chatMessage.message, chatMessage.tp, None)
+      Global.discord.sendMessageFromWow(None, chatMessage.message, chatMessage.tp, None, configIndex)
     } else {
       playerRoster.get(chatMessage.guid).fold({
         queuedChatMessages.get(chatMessage.guid).fold({
@@ -570,7 +575,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
           sendNameQuery(chatMessage.guid)
         })(_ += chatMessage)
       })(name => {
-        Global.discord.sendMessageFromWow(Some(name.name), chatMessage.message, chatMessage.tp, chatMessage.channel)
+        Global.discord.sendMessageFromWow(Some(name.name), chatMessage.message, chatMessage.tp, chatMessage.channel, configIndex)
       })
     }
   }
@@ -749,7 +754,7 @@ class GamePacketHandler(realmId: Int, realmName: String, sessionKey: Array[Byte]
   }
 
   private def handle_SMSG_WARDEN_DATA(msg: Packet): Unit = {
-    if (Global.config.wow.platform == Platform.Windows) {
+    if (Global.config.wow(configIndex).platform == Platform.Windows) {
       logger.error("WARDEN ON WINDOWS IS NOT SUPPORTED! BOT WILL SOON DISCONNECT! TRY TO USE PLATFORM MAC!")
       return
     }

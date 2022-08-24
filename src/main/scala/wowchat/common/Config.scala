@@ -11,9 +11,9 @@ import wowchat.game.GamePackets
 import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe.{TypeTag, typeOf}
 
-case class WowChatConfig(discord: DiscordConfig, wow: Wow, guildConfig: GuildConfig, channels: Seq[ChannelConfig], filters: Option[FiltersConfig])
+case class WowChatConfig(discord: DiscordConfig, wow: List[Wow], guildConfig: GuildConfig, channels: Seq[ChannelConfig], filters: Option[FiltersConfig])
 case class DiscordConfig(token: String, enableDotCommands: Boolean, dotCommandsWhitelist: Set[String], enableCommandsChannels: Set[String], enableTagFailedNotifications: Boolean)
-case class Wow(locale: String, platform: Platform.Value, build: Option[Int], realmlist: RealmListConfig, account: Array[Byte], password: String, character: String, enableServerMotd: Boolean)
+case class Wow(locale: String, platform: Platform.Value, build: Option[Int], realmlist: RealmListConfig, account: Array[Byte], password: String, character: String, enableServerMotd: Boolean, restrictedChannel: String)
 case class RealmListConfig(name: String, host: String, port: Int)
 case class GuildConfig(notificationConfigs: Map[String, GuildNotificationConfig])
 case class GuildNotificationConfig(enabled: Boolean, format: String, channel: Option[String])
@@ -45,8 +45,7 @@ object WowChatConfig extends GamePackets {
     version = getOpt(wowConf, "version").getOrElse("1.12.1")
     expansion = WowExpansion.valueOf(version)
 
-    WowChatConfig(
-      DiscordConfig(
+    val discordConfig = DiscordConfig(
         discordConf.getString("token"),
         getOpt[Boolean](discordConf, "enable_dot_commands").getOrElse(true),
         getOpt[util.List[String]](discordConf, "dot_commands_whitelist")
@@ -54,20 +53,31 @@ object WowChatConfig extends GamePackets {
         getOpt[util.List[String]](discordConf, "enable_commands_channels")
           .getOrElse(new util.ArrayList[String]()).asScala.map(_.toLowerCase).toSet,
         getOpt[Boolean](discordConf, "enable_tag_failed_notifications").getOrElse(true)
-      ),
-      Wow(
-        getOpt[String](wowConf, "locale").getOrElse("enUS"),
-        Platform.valueOf(getOpt[String](wowConf, "platform").getOrElse("Mac")),
-        getOpt[Int](wowConf, "build"),
-        parseRealmlist(wowConf),
-        convertToUpper(wowConf.getString("account")),
-        wowConf.getString("password"),
-        wowConf.getString("character"),
-        getOpt[Boolean](wowConf, "enable_server_motd").getOrElse(true)
-      ),
-      parseGuildConfig(guildConf),
-      parseChannels(channelsConf),
-      parseFilters(filtersConf)
+      )
+
+    val accountsConfig = wowConf.getObject("accounts")
+
+    var wowConfigs = List[Wow]()
+
+    accountsConfig.asScala.foreach({ case (discChannel, values) =>
+      val accountInfo = values.unwrapped().asInstanceOf[util.HashMap[String, String]]
+      val config =
+        Wow(
+          getOpt[String](wowConf, "locale").getOrElse("enUS"),
+          Platform.valueOf(getOpt[String](wowConf, "platform").getOrElse("Mac")),
+          getOpt[Int](wowConf, "build"),
+          parseRealmlist(wowConf, accountInfo.get("realm")),
+          convertToUpper(accountInfo.get("account")),
+          accountInfo.get("password"),
+          accountInfo.get("character"),
+          getOpt[Boolean](wowConf, "enable_server_motd").getOrElse(true),
+          discChannel
+        )
+      wowConfigs = wowConfigs :+ config
+    })
+
+    WowChatConfig(
+      discordConfig, wowConfigs, parseGuildConfig(guildConf), parseChannels(channelsConf), parseFilters(filtersConf)
     )
   }
 
@@ -75,7 +85,8 @@ object WowChatConfig extends GamePackets {
   lazy val getExpansion = expansion
 
   lazy val getBuild: Int = {
-    Global.config.wow.build.getOrElse(
+    // Version/build will be the same for all configurations; just read from first entry.
+    Global.config.wow.head.build.getOrElse(
       version match {
         case "1.6.1" => 4544
         case "1.6.2" => 4565
@@ -110,7 +121,7 @@ object WowChatConfig extends GamePackets {
     }).getBytes("UTF-8")
   }
 
-  private def parseRealmlist(wowConf: Config): RealmListConfig = {
+  private def parseRealmlist(wowConf: Config, realm: String): RealmListConfig = {
     val realmlist = wowConf.getString("realmlist")
     val splt = realmlist.split(":", 2)
     val (host, port) =
@@ -120,7 +131,7 @@ object WowChatConfig extends GamePackets {
         (splt.head, splt(1).toInt)
       }
 
-    RealmListConfig(wowConf.getString("realm"), host, port)
+    RealmListConfig(realm, host, port)
   }
 
   private def parseGuildConfig(guildConf: Option[Config]): GuildConfig = {
