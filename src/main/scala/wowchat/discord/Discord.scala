@@ -98,8 +98,8 @@ class Discord(discordConnectionCallback: CommonConnectionCallback) extends Liste
     new TagRole("OS", Color.decode("#e5541e"), 10),
     new TagRole("OS", Color.decode("#e5541e"), 25),
 
-    new TagRole("WG", Color.decode("#c9e0f7"), 0, "Join_WG", "JOIN_WG"),
-    new TagRole("RBG", Color.decode("#f2c9f7"), 0, "Queue_RBG", "QUEUE_RBG")
+    new TagRole("WG", Color.decode("#85c2ff"), 0, "Join_WG", "JOIN_WG"),
+    new TagRole("RBG", Color.decode("#f06fff"), 0, "Queue_RBG", "QUEUE_RBG")
   )
 
   def changeStatus(gameType: ActivityType, message: String): Unit = {
